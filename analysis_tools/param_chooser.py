@@ -60,7 +60,7 @@ class AlgoParamResults:
         self.pnl_df = pd.merge(self.pnl_df, self.param_df, on='paramset_id')
         self.pnl_df.drop_duplicates(subset=['PnL', 'win_percent', 'max_potential'])
 
-    def get_best_params(self, even_money):
+    def get_best_param_choice_params(self, even_money):
         if even_money:
             self.pnl_df = self.pnl_df[self.pnl_df['atrLower'] == self.pnl_df['atrUpper']]
 
@@ -69,28 +69,34 @@ class AlgoParamResults:
             temp_side = self.pnl_df[self.pnl_df['side'] == side].copy(deep=True)
             temp_side.drop_duplicates(subset=['side', 'PnL'], inplace=True)
 
-            for metric in ['win_percent', 'expected_value', 'pnl']:
+            for metric in ['expected_value', 'PnL']:
                 pnl_metric = temp_side.sort_values(by=[metric], ascending=False)
                 best_params.append(pnl_metric.iloc[0])
                 best_params.append(pnl_metric.iloc[-1])
 
-            for metric in ['avg_pnl_neg', 'avg_pnl_pos', 'avg_pnl', 'max_potential']:
-                pnl_metric = temp_side.sort_values(by=[metric], ascending=False)
+            for metric in ['avg_pnl_neg', 'avg_pnl_pos', 'avg_pnl', 'max_potential', 'win_percent']:
+                if metric == 'avg_pnl_neg':
+                    pnl_metric = temp_side.sort_values(by=[metric], ascending=True)
+                else:
+                    pnl_metric = temp_side.sort_values(by=[metric], ascending=False)
                 best_params.append(pnl_metric.iloc[0])
 
-        best_params = pd.concat(best_params)
-        best_params = best_params.sort_values(['PnL'], ascending=False)
+        best_params = pd.concat(best_params, axis=1).T
+        best_params = best_params.sort_values(by=['PnL'], ascending=False)
         best_params.drop_duplicates(inplace=True)
 
         self.best_params_df = best_params
         self.valid_params = np.array(best_params['paramset_id'])
 
     def add_chosen_params(self):
-        chosen_params = []
+        add_dfs = []
         for side in ['Bull', 'Bear']:
-            chosen_params = chosen_params + self.ph.setup_params.chosen_params[side]
-        add_df = self.pnl_df[self.pnl_df['paramset_id'].isin(chosen_params)]
-        self.best_params_df = pd.concat([self.best_params_df, add_df]).reset_index(drop=True)
+            chosen_params = self.ph.setup_params.chosen_params[side]
+            chosen_df = self.pnl_df[self.pnl_df['paramset_id'].isin(chosen_params)]
+            chosen_df = chosen_df[chosen_df['side'] == side]
+            add_dfs.append(chosen_df)
+        add_dfs = pd.concat(add_dfs).reset_index(drop=True)
+        self.best_params_df = pd.concat([self.best_params_df, add_dfs]).reset_index(drop=True)
         self.best_params_df.drop_duplicates(inplace=True)
 
     def save_all_params(self):
@@ -110,12 +116,19 @@ class AlgoParamResults:
         self.set_pnl()
         self.subset_date_agg_pnl()
         self.merge_pnl_params()
-        self.get_best_params(even_money)
+        self.get_best_param_choice_params(even_money)
         self.add_chosen_params()
         self.save_all_params()
 
-    def get_valid_params(self):
+    def get_valid_params(self, only_chosen=False):
+        """TODO: check whether its useful later to keep valid params as a df"""
         valid_params = self.best_params_df[self.best_params_df['side'] == self.ph.side]
+        if only_chosen:
+            valid_params = (
+                valid_params)[(valid_params['side'] == self.ph.side) &
+                              (valid_params['paramset_id'].isin(self.ph.setup_params.chosen_params[self.ph.side]))]
+        valid_params = valid_params['paramset_id'].to_numpy()
+        valid_params = np.sort(valid_params)
 
         print(f'Training {len(valid_params)} Valid Params: \n'
               f'...{valid_params}')

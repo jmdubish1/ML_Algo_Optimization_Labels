@@ -47,7 +47,7 @@ class TradeData:
                            pd.to_datetime(self.ph.setup_params.start_train_date).date()]
 
     def set_dates(self, test_date):
-        self.curr_test_date = pd.to_datetime(test_date)
+        self.curr_test_date = pd.to_datetime(test_date, format='%Y-%m-%d')
         self.start_period_test_date = self.curr_test_date - timedelta(self.ph.setup_params.test_period_days)
 
     def set_pnl(self):
@@ -66,8 +66,9 @@ class TradeData:
                                         (self.trade_df['side'] == self.ph.side)]
         self.subset_start_time()
 
-    def separate_train_test(self):
+    def separate_train_test(self, test_date):
         print('\nSeparating Train-Test')
+        self.set_dates(test_date)
         self.subset_test_period()
         train_df = self.working_df[self.working_df['DateTime'] <= self.start_period_test_date]
         self.train_dates = list(np.unique(train_df['DateTime'].dt.date))

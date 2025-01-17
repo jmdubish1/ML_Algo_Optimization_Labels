@@ -7,7 +7,7 @@ import openpyxl
 from openpyxl.drawing.image import Image
 import keras
 import ml_tools.loss_functions as lf
-import ml_tools.general_lstm_tools as glt
+import ml_tools.general_ml_tools as glt
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -25,9 +25,6 @@ class SaveHandler:
         self.model_folder = ''
         self.model_save_path = ''
         self.previous_model_path = ''
-
-        self.test_date = None
-        self.check_create_model_folder()
 
     def _ensure_directories_exist(self, folders):
         """Ensure that all required directories exist."""
@@ -114,15 +111,16 @@ class SaveHandler:
         self.model_save_path = os.path.dirname(self.ph.pathmgr.model_path('', self.test_date, extension=''))
 
     def save_xgb_model(self, uniq_id):
-        model_path = self.ph.pathmgr.model_path(uniq_id, self.test_date, extension='bin')
+        model_path = self.ph.pathmgr.model_path(uniq_id, self.test_date, extension='json')
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
         self.ph.ml_model.model.save_model(model_path)
 
     def load_xgb_model(self, uniq_id):
-        model_path = self.ph.pathmgr.model_path(uniq_id, self.test_date, extension='bin')
+        model_path = self.ph.pathmgr.model_path(uniq_id, self.test_date, extension='json')
         self.ph.ml_model.model.load_model(model_path)
 
-    def load_xgb_params(self):
-        param_file = self.ph.pathmgr.xgb_param_data_path()
+    def load_xgb_params(self, all_params=False):
+        param_file = self.ph.pathmgr.xgb_param_data_path(all_params)
         param_df = pd.read_excel(param_file)
         return param_df
 
@@ -133,19 +131,39 @@ class SaveHandler:
 
     def save_xgboost_params(self, param_list):
         """Save XGBoost parameter results to an Excel file."""
-        file_path = os.path.join(self.data_folder, f"{self.ph.paramset_id}_xgb_best_params.xlsx")
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        file_path = self.ph.pathmgr.xgb_param_data_path()
 
+        if not self.ph.setup_params.train_initial:
+            directory, filename = os.path.split(file_path)
+            name, ext = os.path.splitext(filename)
+            new_filename = f'{name}_{self.ph.test_date}{ext}'
+            file_path = os.path.join(directory, new_filename)
+
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         df = pd.DataFrame(param_list)
+
         if os.path.exists(file_path):
             existing_df = pd.read_excel(file_path)
             combined_df = pd.concat([existing_df, df]).drop_duplicates()
         else:
             combined_df = df
 
-        combined_df.sort_values("AUC", ascending=False, inplace=True)
+        combined_df.sort_values("F1_train", ascending=False, inplace=True)
         combined_df.to_excel(file_path, index=False)
+
         print(f"XGBoost parameters saved: {file_path}")
+
+    def save_xgboost_probs(self):
+        preds = {}
+        for param_dict in self.ph.ml_model.tested_params:
+            preds = param_dict.pop('Pred_probs')
+            temp_df = {param_dict['Model_param_id']: preds}
+            preds.append(temp_df)
+        if not self.ph.setup_params.train_initial:
+            preds = pd.DataFrame(preds)
+            save_path = self.ph.pathmgr.model_data_path('pred_probabilities')
+            preds.to_excel(save_path, index=False)
+            breakpoint()
 
     def save_plot_to_excel(self, side):
         """Save a plot of model results to an Excel file."""

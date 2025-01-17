@@ -14,16 +14,17 @@ import tensorflow as tf
 from numba import cuda
 from typing import TYPE_CHECKING, List, Dict, Optional, Tuple, AnyStr
 
-from ml_tools.xgboost_model_tools import XgBoostModel, XgbModelData
-from ml_tools.lstm_model_tools import LstmModel
-from data_tools.data_trade_tools import TradeData
-from analysis_tools.param_chooser import AlgoParamResults
-from data_tools.data_mkt_setup_tools import MktDataSetup, MktDataWorking
-from ml_tools.save_handler import SaveHandler
-from data_tools.data_prediction_tools import ModelOutputData
-from data_tools.data_mkt_lstm_tools import MLTrainData
-# from ml_tools.autoencoder_model_tools import AutoEncoderModel
-from data_tools.path_tools import PathManager
+if TYPE_CHECKING:
+    from ml_tools.xgboost_model_tools import XgBoostModel, XgbModelData
+    from ml_tools.lstm_model_tools import LstmModel
+    from data_tools.data_trade_tools import TradeData
+    from analysis_tools.param_chooser import AlgoParamResults
+    from data_tools.data_mkt_setup_tools import MktDataSetup, MktDataWorking
+    from ml_tools.save_handler import SaveHandler
+    # from data_tools.data_prediction_tools import ModelOutputData
+    from data_tools.data_mkt_ml_tools import MLTrainData
+    # from ml_tools.autoencoder_model_tools import AutoEncoderModel
+    from data_tools.path_tools import PathManager
 
 
 @dataclass
@@ -43,11 +44,11 @@ class SetupParams:
     retrain_tf: bool
     randomize_train: bool
 
-    label_classes: Optional[list]
-    train_initial: Optional[bool]
-    use_best_params: Optional[bool]
-    predict_tf: Optional[bool]
-    use_prev_period_model: Optional[bool]
+    label_classes: Optional[list[str]] = None
+    train_initial: Optional[bool] = False
+    use_best_params: Optional[bool] = False
+    predict_tf: Optional[bool] = False
+    use_prev_period_model: Optional[bool] = False
 
     num_y_cols: field(init=False) = int
 
@@ -64,14 +65,15 @@ class ProcessHandler:
     def __init__(self,
                  setup_params: dict):
         self.setup_params = SetupParams(**setup_params)
-        self.pathmgr = PathManager
-        self.save_handler = SaveHandler
-        self.mkt_setup = MktDataSetup
-        self.mktdata_working = MktDataWorking
-        self.ml_data = MLTrainData
-        self.trade_data = TradeData
-        self.param_chooser = AlgoParamResults
-        self.model_output_data = ModelOutputData
+        self.pathmgr: "PathManager"
+        self.save_handler: "SaveHandler"
+        self.mkt_setup: "MktDataSetup"
+        self.mktdata_working: "MktDataWorking"
+        self.ml_data: "MLTrainData"
+        self.trade_data: "TradeData"
+        self.param_chooser: AlgoParamResults
+        # self.model_output_data = ModelOutputData
+        self.ml_model = None
 
         self.test_dates = self.get_test_dates()
         self.curr_test_date = None
@@ -84,6 +86,7 @@ class ProcessHandler:
         self.previous_model_train_path = str
         self.train_modeltf = bool
         self.prior_traintf = bool
+        self.test_date = None
 
     def get_test_dates(self):
         """Gets a list of all test_date's to train. This should go in another class (possibly processHandler)"""
@@ -98,6 +101,13 @@ class ProcessHandler:
             current_date += timedelta(days=self.setup_params.test_period_days)
 
         return test_dates
+
+    def get_input_shapes(self):
+        daily_shape = (self.ml_model.model_data.daily_len, self.ml_data.x_train_daily.shape[1] - 1)
+        intraday_shape = \
+            (self.ml_model.model_data.intra_len, self.ml_data.x_train_intra.shape[1] - 1)
+
+        self.ml_model.input_shape = (daily_shape, intraday_shape)
 
     def reset_gpu_memory(self):
         tf.keras.backend.clear_session()
@@ -161,10 +171,9 @@ class LstmProcessProcessHandler(ProcessHandler):
 
     def work_single_lstm_model(self, test_date, use_prev_period_model, predict_tf, ind, train_dict):
         print(f'Modelling {test_date}')
-        self.trade_data.set_dates(test_date)
         self.trade_data.create_working_df()
         self.save_handler.set_model_train_paths_lstm()
-        self.trade_data.separate_train_test()
+        self.trade_data.separate_train_test(test_date)
 
         self.decide_model_to_train(test_date, use_prev_period_model)
         keras.backend.clear_session()
@@ -196,42 +205,41 @@ class LstmProcessProcessHandler(ProcessHandler):
 class XgbModelProcessHandler(ProcessHandler):
     def __init__(self, setup_params: dict):
         super().__init__(setup_params)
-        self.ml_model = XgBoostModel
+        self.ml_model: "XgBoostModel"
         self.uniq_id = str
         self.train_modeltf = bool
         self.previous_train_path = None
 
     def xgboost_workflow(self):
         if self.setup_params.train_initial:
-            self.test_dates = self.test_dates[0]
-        for test_date in self.test_dates:
-            self.pre_training_work_xgb(test_date)
+            self.test_dates = [self.test_dates[0]]
+        for self.test_date in self.test_dates:
+            self.pre_training_work_xgb(self.test_date)
             if self.setup_params.train_initial:
                 if self.setup_params.use_best_params:
-                    self.ml_model.get_best_params()
-                    self.ml_model.create_best_retrain_dict()
-                    self.ml_model.get_param_combos()
+                    self.setup_params.use_tgt_param = True
+                    self.ml_model.get_best_params(n_best=self.setup_params.sample_size)
+                self.ml_model.get_param_combos()
+                self.ml_model.create_eval_param_dict()
             else:
                 self.ml_model.get_best_params()
                 self.ml_model.create_eval_param_dict()
 
-            self.ml_model.xgboost_model_training(test_date)
+            self.ml_model.xgboost_model_training(self.test_date)
 
             self.reset_gpu_memory()
 
     def pre_training_work_xgb(self, test_date):
-        self.trade_data.set_dates(test_date)
         self.trade_data.create_working_df()
-        self.save_handler.set_model_train_paths_xgb()
-        self.trade_data.separate_train_test()
+        self.trade_data.separate_train_test(test_date)
         self.ml_data.prep_train_test_data()
-        self.set_xgb_param_dict()
+        # self.set_xgb_param_dict()
 
     def set_xgb_param_dict(self):
-        if self.ml_model.use_best_params:
-            xgb_params = self.save_handler.load_xgboost_params()
-            self.ml_model.find_best_params(xgb_params)
-        self.ml_model.create_gridsearch_dict()
+        if self.setup_params.use_best_params:
+            xgb_params = self.save_handler.load_xgb_params()
+            self.ml_model.get_best_params(xgb_params)
+        # self.ml_model.create_gridsearch_dict()
 
 
 

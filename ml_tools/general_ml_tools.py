@@ -19,8 +19,8 @@ class BufferedBatchGenerator(Sequence):
                  randomize=False,
                  dat_type='tensor'):
         self.ph = process_handler
-        self.batch_size = self.ph.ml_model.batch_s
-        self.buffer_size = buffer_size
+        self.batch_size = self.ph.ml_model.model_data.batch_size
+        self.buffer_size = self.ph.ml_model.model_data.buffer
         self.train_tf = train
         self.sample_ind_list = []
         self.n_samples = 0
@@ -79,8 +79,8 @@ class BufferedBatchGenerator(Sequence):
 
     def _process_buffer_tensor(self, buffer_inds):
         num_y_cols = self.ph.setup_params.num_y_cols
-        daily_len = self.ph.ml_model.daily_len
-        intra_len = self.ph.ml_model.intra_len
+        daily_len = self.ph.ml_model.model_data.daily_len
+        intra_len = self.ph.ml_model.model_data.intra_len
         daily_shape = self.ph.ml_model.input_shape[0]
         intra_shape = self.ph.ml_model.input_shape[1]
 
@@ -107,8 +107,8 @@ class BufferedBatchGenerator(Sequence):
 
     def process_buffer_numpy(self, buffer_inds):
         num_y_cols = self.ph.setup_params.num_y_cols
-        daily_len = self.ph.ml_model.daily_len
-        intra_len = self.ph.ml_model.intra_len
+        daily_len = self.ph.ml_model.model_data.daily_len
+        intra_len = self.ph.ml_model.model_data.intra_len
 
         x_day_buffer, x_intra_buffer, y_buffer = [], [], []
         for t_ind in buffer_inds:
@@ -205,28 +205,26 @@ def get_class_weights(process_handler):
         y=numeric_labels_trade)
 
     class_weight_dict = {idx: weight for idx, weight in enumerate(class_weights)}
-
-    class_weight_print = {label: weight for label, weight, in zip(label_to_index.keys(), class_weights)}
+    class_weight_adj = {label: weight for label, weight, in zip(label_to_index.keys(), class_weights)}
 
     for key, val in class_weight_dict.items():
-        if ph.setup_params.over_sample:
+        class_weight_ind = np.where(class_weights == val)[0][0]
+        if ph.setup_params.over_sample_y:
             new_val = (val - 1) / 10 + 1
         else:
             new_val = val
-        if val == class_weight_print['upper_exit']:
-            class_weight_dict[key] = new_val
-            class_weight_print['upper_exit'] = new_val
-        elif val == class_weight_print['lower_exit']:
-            class_weight_dict[key] = new_val
-            class_weight_print['lower_exit'] = new_val * 1.05
-        elif val == class_weight_print['time_exit']:
-            class_weight_dict[key] = new_val
-            class_weight_print['time_exit'] = new_val * .975
+        if val == class_weight_adj['upper_exit']:
+            class_weight_adj['upper_exit'] = new_val * 1.05
+            class_weights[class_weight_ind] = new_val * 1.05
+        elif val == class_weight_adj['lower_exit']:
+            class_weight_adj['lower_exit'] = new_val * 1.05
+            class_weights[class_weight_ind] = new_val * 1.05
+        elif val == class_weight_adj['time_exit']:
+            class_weight_adj['time_exit'] = new_val * .95
+            class_weights[class_weight_ind] = new_val * .95
 
-    class_weight_print = {label: weight for label, weight, in zip(label_to_index.keys(), class_weights)}
-
-    print(f'Class Weights: {class_weight_print}\n')
-    print(f'Class Weight 1H: {class_weight_dict}')
+    print(f'Class Weights    : {class_weight_dict}\n')
+    print(f'Class Weights Adj: {class_weight_adj}')
     class_weights = np.array(class_weights)
 
     return class_weight_dict, class_weights

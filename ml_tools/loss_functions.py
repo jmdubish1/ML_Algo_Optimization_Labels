@@ -1,7 +1,7 @@
 import tensorflow as tf
 import numpy as np
 import tensorflow_probability as tfp
-from sklearn.metrics import roc_auc_score, precision_score
+from sklearn.metrics import roc_auc_score, precision_score, fbeta_score
 from scipy.special import softmax
 
 
@@ -119,7 +119,7 @@ def xgb_weighted_auc(preds, dtrain):
 
     num_classes = len(np.unique(labels))
     preds = preds.reshape(-1, num_classes)
-    preds = softmax(preds)
+    preds = softmax(preds, axis=1)
 
     weighted_auc_score = roc_auc_score(
         labels, preds,
@@ -144,10 +144,31 @@ def xgb_weighted_precision(preds, dtrain):
     weighted_precision_score = precision_score(
         labels, preds_classes,
         sample_weight=weights,
-        average='weighted'
+        average='weighted',
+        zero_division=0
     )
 
     return 'weighted_precision', weighted_precision_score
+
+
+def xgb_weighted_f1beta(preds, dtrain, beta=1.25):
+    labels = dtrain.get_label()
+    weights = dtrain.get_weight()
+    num_classes = len(np.unique(labels))
+
+    preds = preds.reshape(-1, num_classes)
+    preds = softmax(preds, axis=1)
+
+    preds_classes = np.argmax(preds, axis=1)
+
+    weighted_f1beta_score = fbeta_score(
+        labels, preds_classes,
+        sample_weight=weights,
+        average='weighted',
+        beta=beta
+    )
+
+    return f'weighted_f1beta', weighted_f1beta_score
 
 
 """-------------------------------------------Combined Functions-----------------------------------------------------"""

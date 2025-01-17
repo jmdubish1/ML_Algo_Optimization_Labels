@@ -34,7 +34,7 @@ class MLTrainData:
         self.y_wl_onehot_scaler = OneHotEncoder(sparse_output=False)
         self.y_wl_label_encoder = LabelEncoder()
 
-    def prep_train_test_data(self, load_scalers):
+    def prep_train_test_data(self, load_scalers=False):
         self.set_x_train_test_datasets()
         self.scale_x_data(load_scalers)
         self.onehot_y_wl_data()
@@ -51,13 +51,13 @@ class MLTrainData:
             mktw.intra_working)[mktw.intra_working['DateTime'].dt.date.isin(self.ph.trade_data.test_dates)]
 
         train_dates = (
-                self.ph.trade_data.add_to_daily_dates(self.ph.ml_model.daily_len, train=True) +
+                self.ph.trade_data.add_to_daily_dates(self.ph.ml_model.model_data.daily_len, train=True) +
                 self.ph.trade_data.train_dates)
         self.x_train_daily = mktw.daily_working[mktw.daily_working['DateTime'].dt.date.isin(train_dates)]
         self.x_train_daily.reset_index(inplace=True, drop=True)
 
         test_dates = (
-                self.ph.trade_data.add_to_daily_dates(self.ph.ml_model.daily_len, train=False) +
+                self.ph.trade_data.add_to_daily_dates(self.ph.ml_model.model_data.daily_len, train=False) +
                 self.ph.trade_data.test_dates)
         self.x_test_daily = mktw.daily_working[mktw.daily_working['DateTime'].dt.date.isin(test_dates)]
         self.x_test_daily.reset_index(inplace=True, drop=True)
@@ -90,7 +90,7 @@ class MLTrainData:
 
     def onehot_y_wl_data(self):
         print('\nOnehotting WL Data')
-        resample_tf = self.ph.setup_params.over_sample
+        resample_tf = self.ph.setup_params.over_sample_y
 
         def encode_dataframe(df, scaler):
             if len(df) == 0:
@@ -165,4 +165,3 @@ def balance_y_trades(y_df):
     resampled_df = resampled_df.sort_values(by='DateTime', ascending=True).reset_index(drop=True)
 
     return resampled_df
-

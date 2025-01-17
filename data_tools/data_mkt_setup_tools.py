@@ -37,7 +37,7 @@ class MktDataSetup:
         dfs = []
         for sec in self.all_secs:
             print(f'...{sec}')
-            temp_df = pd.read_csv(f'{self.ph.pathmgr.data_loc}\\{sec}_{data_end}')
+            temp_df = pd.read_csv(f'{self.ph.pathmgr.mkt_dat_loc}\\{sec}_{data_end}')
             temp_df = gt.convert_date_to_dt(temp_df)
 
             temp_df = temp_df[['DateTime', 'Open', 'High', 'Low', 'Close', 'Vol']]
@@ -64,7 +64,7 @@ class MktDataWorking:
         self.ph.mktdata_working = self
         self.daily_working = pd.DataFrame()
         self.intra_working = pd.DataFrame()
-        self.ffd_df = pd.read_excel(f'{self.ph.pathmgr.trade_dat_loc}\\agg_data\\all_FFD_params.xlsx')
+        self.ffd_df = pd.read_excel(self.ph.pathmgr.agg_ffd_loc)
 
         self.param_id_df = pd.DataFrame()
         self.fastema = 12
@@ -130,7 +130,7 @@ class MktDataWorking:
 
     def get_frac_diff_params(self, met, sec):
         met = 'Close' if met in ['Open', 'High', 'Low'] else met
-        df = self.ffd_df.loc[(self.ffd_df['time_frame'] == self.ph.setup_params.time_frame_train) &
+        df = self.ffd_df.loc[(self.ffd_df['time_frame'] == self.ph.pathmgr.time_frame_train) &
                              (self.ffd_df['security'] == sec) &
                              (self.ffd_df['Data'] == met)].reset_index(drop=True)
 
